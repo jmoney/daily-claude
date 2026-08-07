@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.jonmonette.dailynotes</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/jon.monette/Workspace/Personal/development/daily-claude/daily-claude.sh</string>
+    </array>
+
+    <!-- Fires every day at 7:00am local, matching the Homebrew formula's
+         `service do` block (its cron DSL can't express a Mon-Fri-only
+         schedule -- see Formula/daily-claude.rb). The script itself checks
+         the day-of-week and does nothing on weekends. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>7</integer>
+        <key>Minute</key><integer>0</integer>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/jon.monette/.daily-claude/launchd-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/jon.monette/.daily-claude/launchd-stderr.log</string>
+</dict>
+</plist>

@@ -1,12 +1,13 @@
 class DailyClaude < Formula
   desc "Build Obsidian daily and meeting notes from an M365 calendar via Claude"
-  homepage "https://github.com/REPLACE_ME/daily-claude"
+  homepage "https://github.com/jmoney/daily-claude"
+  license "Apache-2.0"
 
   # No tagged release yet, so this is head-only for now. Once you cut a
   # release, replace this with a stable url+sha256, e.g.:
-  #   url "https://github.com/REPLACE_ME/daily-claude/archive/refs/tags/v0.1.0.tar.gz"
+  #   url "https://github.com/jmoney/daily-claude/archive/refs/tags/v0.1.0.tar.gz"
   #   sha256 "..."
-  head "https://github.com/REPLACE_ME/daily-claude.git", branch: "main"
+  head "https://github.com/jmoney/daily-claude.git", branch: "main"
 
   depends_on :macos # launchd/brew services scheduling is macOS-specific
 
@@ -23,6 +24,10 @@ class DailyClaude < Formula
     # Weekday value or "*", not ranges like "1-5").
     cron "0 7 * * *"
     keep_alive false
+    # Service#run_at_load defaults to true, which would fire an unscheduled
+    # run every time the service is (re)loaded (brew services start, a
+    # reboot, brew upgrade). Only the 07:00 cron trigger should run this.
+    run_at_load false
     working_dir var/"daily-claude"
     log_path var/"log/daily-claude/launchd-stdout.log"
     error_log_path var/"log/daily-claude/launchd-stderr.log"

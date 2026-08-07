@@ -6,19 +6,24 @@
 set -uo pipefail
 
 DRY_RUN=false
+FORCE=false
 for arg in "$@"; do
   case "$arg" in
     -h|--help)
       cat <<USAGE
-Usage: daily-claude [--dry-run]
+Usage: daily-claude [--dry-run] [--force]
 
   --dry-run   Print the prompt that would be sent to claude, then exit.
               Does not call claude, spend budget, or touch the vault.
+  --force     Run even if a same-day marker already exists (see below).
 USAGE
       exit 0
       ;;
     --dry-run)
       DRY_RUN=true
+      ;;
+    --force)
+      FORCE=true
       ;;
   esac
 done
@@ -32,6 +37,7 @@ LOGDIR="$WORKDIR/logs"
 TODAY="$(date +%Y-%m-%d)"
 DOW="$(date +%u)"  # 1=Mon .. 7=Sun
 LOGFILE="$LOGDIR/run-$TODAY.log"
+MARKER="$WORKDIR/.ran-$TODAY"
 
 mkdir -p "$LOGDIR"
 cd "$WORKDIR" || exit 1
@@ -39,6 +45,37 @@ cd "$WORKDIR" || exit 1
 if [ "$DOW" -gt 5 ] && [ "$DRY_RUN" = false ]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S') skipping: weekend" >> "$LOGFILE"
   exit 0
+fi
+
+# Guards against double-execution if more than one scheduler is active at
+# once (for example the manual launchd plist and a brew-managed service
+# both loaded). Whichever fires first for the day wins; anything after it
+# becomes a no-op unless --force is passed.
+if [ -e "$MARKER" ] && [ "$DRY_RUN" = false ] && [ "$FORCE" = false ]; then
+  echo "$(date '+%Y-%m-%d %H:%M:%S') skipping: already ran today ($MARKER exists) -- pass --force to override" >> "$LOGFILE"
+  exit 0
+fi
+
+# The laptop's VPN/network often isn't up yet at the 7am trigger. Rather than
+# have launchd fire repeatedly, wait out the gap here, retrying until the
+# network is reachable or 11:00 passes (a daily note assembled much later
+# than that isn't worth having).
+if [ "$DRY_RUN" = false ]; then
+  have_network() {
+    curl -fsS --max-time 5 -o /dev/null "https://api.anthropic.com" 2>/dev/null
+  }
+  CONNECTIVITY_DEADLINE=$(date -v11H -v0M -v0S +%s)
+  if ! have_network; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') no network yet, retrying every 60s until 11:00" >> "$LOGFILE"
+    while ! have_network; do
+      if [ "$(date +%s)" -ge "$CONNECTIVITY_DEADLINE" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') giving up waiting for network by 11:00, skipping today" >> "$LOGFILE"
+        exit 0
+      fi
+      sleep 60
+    done
+    echo "$(date '+%Y-%m-%d %H:%M:%S') network is back after waiting" >> "$LOGFILE"
+  fi
 fi
 
 # Tool names this run is pre-authorized to call without an interactive prompt.
@@ -109,11 +146,18 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
+touch "$MARKER"
+
 {
   echo "$(date '+%Y-%m-%d %H:%M:%S') starting run for $TODAY"
-  claude -p "$PROMPT" \
+  gtimeout --kill-after=30s 10m claude -p "$PROMPT" \
     --allowedTools "$ALLOWED_TOOLS" \
     --max-budget-usd 3.00 \
     --no-session-persistence
-  echo "$(date '+%Y-%m-%d %H:%M:%S') run finished, exit code $?"
+  STATUS=$?
+  if [ "$STATUS" -eq 124 ] || [ "$STATUS" -eq 137 ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') run timed out after 10m, killed"
+  else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') run finished, exit code $STATUS"
+  fi
 } >> "$LOGFILE" 2>&1

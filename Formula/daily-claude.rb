@@ -10,6 +10,7 @@ class DailyClaude < Formula
   head "https://github.com/jmoney/daily-claude.git", branch: "main"
 
   depends_on :macos # launchd/brew services scheduling is macOS-specific
+  depends_on "coreutils" # gtimeout guards the claude -p call against hangs
 
   def install
     bin.install "daily-claude.sh" => "daily-claude"

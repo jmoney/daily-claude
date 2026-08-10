@@ -61,8 +61,11 @@ fi
 # network is reachable or 11:00 passes (a daily note assembled much later
 # than that isn't worth having).
 if [ "$DRY_RUN" = false ]; then
+  # Any HTTP response at all proves the network is up, so this deliberately
+  # omits curl's -f: the API root answers 404, and -f turns that into exit 22,
+  # which reads as "no network" and stalls every run until the deadline.
   have_network() {
-    curl -fsS --max-time 5 -o /dev/null "https://api.anthropic.com" 2>/dev/null
+    curl -sS --max-time 5 -o /dev/null "https://api.anthropic.com" >/dev/null 2>&1
   }
   CONNECTIVITY_DEADLINE=$(date -v11H -v0M -v0S +%s)
   if ! have_network; then

@@ -49,6 +49,13 @@ class DailyClaude < Formula
 
       Per-run logs land in:
         #{var}/daily-claude/logs/
+
+      To choose which account the scheduled run bills against, create
+        #{var}/daily-claude/env
+      and set a settings file in it, e.g.:
+        export DAILY_CLAUDE_SETTINGS="$HOME/.claude/settings.json.enterprise"
+      Without it the run inherits ~/.claude/settings.json, which may be
+      repointed by your interactive sessions.
     EOS
   end
 

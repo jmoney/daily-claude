@@ -1,73 +1,31 @@
-# TODO: run daily-claude's headless call through Bedrock instead of the enterprise API
+# TODO
 
-## Why
+## Done: explicit backend selection for the headless run (2026-08-10)
 
-`daily-claude.sh` currently calls `claude -p` with no `--settings` override, so it
-picks up whatever the normal settings hierarchy resolves to -- on this machine
-that's `~/.claude/settings.json`, which is a symlink to
-`~/.claude/settings.json.enterprise`. That means every scheduled run bills
-against the enterprise Claude account.
+`daily-claude.sh` used to call `claude -p` with no `--settings` override, so the run billed against whatever `~/.claude/settings.json` happened to resolve to. That symlink is shared with interactive sessions and gets repointed between `settings.json.aws` (Bedrock) and `settings.json.enterprise`, so the scheduled job's billing account silently followed whatever was set for interactive work that day.
 
-There's already a `~/.claude/settings.json.aws` file (Bedrock config) used
-interactively. Routing the headless run through that instead avoids consuming
-enterprise usage for a low-value scheduled job, since Bedrock is billed
-separately (their own AWS account/cost center).
+The run now sources an optional `$WORKDIR/env` (where `$WORKDIR` is `DAILY_CLAUDE_HOME`, defaulting to `~/.daily-claude` — a runtime dir, never part of this repo). Setting `DAILY_CLAUDE_SETTINGS` there selects the account:
 
-## Constraint
+```
+export DAILY_CLAUDE_SETTINGS="$HOME/.claude/settings.json.enterprise"
+```
 
-The Bedrock settings file has the AWS bearer token inline. It must NOT be
-copied into this repo (which is going to GitHub) or otherwise checked in.
+Currently set to the enterprise file, and it must stay there: the M365 calendar connector is scoped to the enterprise (claude.ai) login and is not available under Bedrock. Since the calendar is the job's required input, Bedrock is not a viable fallback — a Bedrock-routed run can only ever no-op at step 1. The `settings.json.aws` alternative below is retained only for testing the non-calendar paths. If the variable is unset the script behaves exactly as before; if it points at a nonexistent file the run aborts rather than quietly falling back to the default account.
 
-## Planned design
+Note the runtime dir is `/opt/homebrew/var/daily-claude`, not `~/.daily-claude`, because the launchd plist sets `DAILY_CLAUDE_HOME`. The env file must live there.
 
-1. At startup, `daily-claude.sh` sources an optional `$WORKDIR/env` file if it
-   exists (`$WORKDIR` defaults to `~/.daily-claude`, which is a per-user
-   runtime dir, NOT part of this git repo -- so nothing placed there is ever
-   at risk of being committed).
-2. That file would contain a line like:
-   ```
-   export DAILY_CLAUDE_SETTINGS="$HOME/.claude/settings.json.aws"
-   ```
-3. If `DAILY_CLAUDE_SETTINGS` is set, the `claude -p` invocation adds:
-   ```
-   --settings "$DAILY_CLAUDE_SETTINGS" --setting-sources <sources>
-   ```
-   with `<sources>` excluding `user`, so the enterprise-symlinked
-   `~/.claude/settings.json` never loads for this run -- only the AWS file.
-4. The repo itself never references the real settings file's content, only
-   the env-var/optional-local-file mechanism, so it stays safe to push as-is.
+### Two findings that changed the original plan
 
-## Open question -- needs a live check before implementing
+**`--settings` merges, it does not replace.** A settings file that simply omits `CLAUDE_CODE_USE_BEDROCK` inherits the value from `~/.claude/settings.json`. Verified: passing `settings.json.enterprise` alone still routed to Bedrock, because that file never sets the variable and the user file had `=1`. Each branch in the script therefore pins `CLAUDE_CODE_USE_BEDROCK` explicitly (`0` for enterprise, `1` for aws) via a second `--settings` JSON argument. Relying on absence is what would have made this silently wrong.
 
-Not verified yet: the exact value for `--setting-sources` that fully excludes
-`user` without erroring (does it need `local` explicitly, or does an empty
-value mean "load nothing from the hierarchy"?). Getting this wrong either:
-- silently falls back to the enterprise settings (defeats the whole point), or
-- errors out.
+**`--setting-sources` is unusable here** — this was the original plan's open question. Excluding `user` does isolate from the enterprise/aws symlink, but MCP servers are registered at user scope, so `--setting-sources project,local` removes the `obsidian` server entirely and the job has nothing to write to. Verified from the job's real working directory: obsidian tools present without the flag, gone with it. The flag is deliberately not used.
 
-Confirming this requires one live `claude -p` call against the real
-`settings.json.aws` file -- a trivial single-turn prompt, not the full
-automation, but it uses real AWS-billed Bedrock credentials. Get an explicit
-go-ahead before running it (it's real money on the user's AWS account, even
-if small).
+### Also checked
 
-## Also noted, not yet investigated
+`~/.claude/policy-limits.json` and `~/.claude/remote-settings.json` are enterprise-pushed policy. Nothing in either blocks backend selection. `remote-settings.json` does set `enforceAvailableModels: true` with `opus[1m]` in the allowed list, so the enterprise file's model value is valid.
 
-`~/.claude/policy-limits.json` and `~/.claude/remote-settings.json` exist and
-look like they could be enterprise-pushed policy. Neither has been read.
-Worth a quick check that nothing in there blocks routing this specific
-headless call through Bedrock, before assuming the plan above just works.
+## Open
 
-## Next steps when picking this back up
-
-1. Get go-ahead, run the one live verification call, confirm which
-   `--setting-sources` value actually isolates from `user` settings.
-2. Wire the `$WORKDIR/env` sourcing + conditional `--settings`/
-   `--setting-sources` flags into `daily-claude.sh`.
-3. Document the `~/.daily-claude/env` convention somewhere a future reader
-   (including future-me) will actually see it -- e.g. the formula's
-   `caveats` block already explains `brew services start`; add a line there
-   too.
-4. Re-run the existing `--dry-run` check plus one real end-to-end run to
-   confirm nothing regressed, same as after the folder-structure and
-   rich-formatting changes earlier.
+- **Enterprise account is at its spend limit — this is now a hard blocker.** A live check returned "You've hit your individual spend limit · run /usage-credits to ask your admin for a higher limit". Because the M365 connector only exists on the enterprise login, there is no working fallback: Bedrock runs cannot read the calendar. The limit has to be raised for this job to function at all.
+- **M365 connector was absent from the headless run** even when routed to enterprise. The 2026-08-10 runs found only the `obsidian` MCP server. Enterprise routing is necessary but may not be sufficient — account-scoped connectors authenticated interactively often don't carry into unattended sessions. Needs a check that the connector is actually reachable from a launchd-spawned run, not just from an interactive one.
+- No tagged release yet; the formula is head-only. Cut `v0.1.0` and replace `head` with a `url`+`sha256`.

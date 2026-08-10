@@ -42,6 +42,16 @@ MARKER="$WORKDIR/.ran-$TODAY"
 mkdir -p "$LOGDIR"
 cd "$WORKDIR" || exit 1
 
+# Optional per-machine config, sourced from the runtime dir rather than this
+# repo so credentials/paths are never at risk of being committed. Recognized:
+#   DAILY_CLAUDE_SETTINGS  -- path to a settings JSON passed to `claude
+#                             --settings`, selecting which account this run
+#                             bills against (see the backend note below).
+if [ -f "$WORKDIR/env" ]; then
+  # shellcheck source=/dev/null
+  . "$WORKDIR/env"
+fi
+
 if [ "$DOW" -gt 5 ] && [ "$DRY_RUN" = false ]; then
   echo "$(date '+%Y-%m-%d %H:%M:%S') skipping: weekend" >> "$LOGFILE"
   exit 0
@@ -160,7 +170,40 @@ touch "$MARKER"
 
 {
   echo "$(date '+%Y-%m-%d %H:%M:%S') starting run for $TODAY"
+  # `--settings` MERGES over the resolved hierarchy rather than replacing it,
+  # so ~/.claude/settings.json still contributes any key the chosen file omits.
+  # That matters for the backend switch: a settings file that simply leaves
+  # CLAUDE_CODE_USE_BEDROCK unset inherits whatever the user file says, so the
+  # run can silently bill the wrong account. Each branch therefore pins the
+  # variable explicitly instead of relying on absence.
+  #
+  # Deliberately NOT using --setting-sources to isolate from the user file:
+  # MCP servers are registered at user scope, so excluding `user` removes the
+  # obsidian server and the run has nothing to write to.
+  SETTINGS_ARGS=()
+  if [ -n "${DAILY_CLAUDE_SETTINGS:-}" ]; then
+    if [ -f "$DAILY_CLAUDE_SETTINGS" ]; then
+      SETTINGS_ARGS=(--settings "$DAILY_CLAUDE_SETTINGS")
+      case "$DAILY_CLAUDE_SETTINGS" in
+        *aws*|*bedrock*)
+          SETTINGS_ARGS+=(--settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"1"}}')
+          ;;
+        *)
+          SETTINGS_ARGS+=(--settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}')
+          ;;
+      esac
+    else
+      # Failing loudly beats silently billing the default account.
+      echo "$(date '+%Y-%m-%d %H:%M:%S') DAILY_CLAUDE_SETTINGS=$DAILY_CLAUDE_SETTINGS does not exist, aborting"
+      exit 1
+    fi
+  fi
+
+  # ${A[@]+"${A[@]}"} rather than a bare "${A[@]}": /bin/bash on macOS is 3.2,
+  # where expanding an empty array under `set -u` is a fatal unbound-variable
+  # error. This form expands to nothing at all when SETTINGS_ARGS is empty.
   gtimeout --kill-after=30s 10m claude -p "$PROMPT" \
+    ${SETTINGS_ARGS[@]+"${SETTINGS_ARGS[@]}"} \
     --allowedTools "$ALLOWED_TOOLS" \
     --max-budget-usd 3.00 \
     --no-session-persistence

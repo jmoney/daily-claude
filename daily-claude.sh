@@ -82,7 +82,14 @@ if [ "$DRY_RUN" = false ]; then
 fi
 
 # Tool names this run is pre-authorized to call without an interactive prompt.
-ALLOWED_TOOLS="mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__obsidian__periodic_note_get_path,mcp__obsidian__search_simple,mcp__obsidian__search_query,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource"
+# The calendar tools are listed under two prefixes on purpose. Under the
+# claude.ai/enterprise config the M365 connector is account-scoped and its
+# tools arrive as mcp__claude_ai_Microsoft_365__*; under Bedrock that connector
+# is absent, so M365 is registered as a local MCP server named microsoft365
+# and the same tools arrive as mcp__microsoft365__*. Allowing both means this
+# runs unattended in either environment without an edit. Listing a tool that
+# isn't present is harmless -- it simply never gets called.
+ALLOWED_TOOLS="mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__obsidian__periodic_note_get_path,mcp__obsidian__search_simple,mcp__obsidian__search_query,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource,mcp__microsoft365__outlook_calendar_search,mcp__microsoft365__read_resource"
 
 PROMPT_TEMPLATE=$(cat <<'PROMPT_EOF'
 You are running unattended as a scheduled automation against my Obsidian vault

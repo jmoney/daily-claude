@@ -117,6 +117,9 @@ fi
 # isn't present is harmless -- it simply never gets called.
 ALLOWED_TOOLS="mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__obsidian__periodic_note_get_path,mcp__obsidian__search_simple,mcp__obsidian__search_query,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource,mcp__microsoft365__outlook_calendar_search,mcp__microsoft365__read_resource"
 
+# Keep apostrophes out of the prompt text below: /bin/bash on macOS is 3.2,
+# whose parser tracks quotes through a heredoc nested inside $( ), so a lone
+# single quote here is a syntax error at the closing paren, not literal text.
 PROMPT_TEMPLATE=$(cat <<'PROMPT_EOF'
 You are running unattended as a scheduled automation against my Obsidian vault
 (via the obsidian MCP server) and my Microsoft 365 calendar (via the Microsoft
@@ -136,6 +139,12 @@ pipe, to a hyphen when naming these files).
    stop; do not create or modify any notes today.
 
 2. Otherwise, fetch my calendar events for __TODAY__ (skip any I declined).
+   Also drop any event whose title suggests time off rather than a meeting
+   (the same OOO, PTO, Vacation, Out of Office, Holiday sense as step 1) even
+   though it only covers part of the day -- a half-day PTO block is not a
+   meeting, so it gets no bullet under "## Meetings" and no meeting note.
+   Only the title decides this; do not drop a real meeting merely because
+   its body or attendee list mentions PTO for someone else.
 
 3. List the subfolders of "Daily/" and find the latest one dated before
    __TODAY__ (this is my last work day, whether or not it was yesterday;

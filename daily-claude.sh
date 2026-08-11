@@ -42,6 +42,22 @@ MARKER="$WORKDIR/.ran-$TODAY"
 mkdir -p "$LOGDIR"
 cd "$WORKDIR" || exit 1
 
+# Log to both macOS unified logging and a per-day file. The system log is the
+# one with retention/rotation handled for us; the files are kept because
+# reading the unified log back (`log show`) needs Full Disk Access for the
+# calling terminal, which isn't always granted, and because the multi-line
+# claude transcript is far easier to read as a file than through `log`.
+#
+# `logger -t daily-claude` tags every line so a single predicate finds them:
+#   log show --last 1d --predicate 'process == "logger"' --style compact
+# Note --predicate matches on `process`, not the tag; the tag shows up in the
+# message text. Falls back silently if logger is somehow unavailable.
+log_line() {
+  local msg="$1"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
+  command -v logger >/dev/null 2>&1 && logger -t daily-claude "$msg"
+}
+
 # Optional per-machine config, sourced from the runtime dir rather than this
 # repo so credentials/paths are never at risk of being committed. Recognized:
 #   DAILY_CLAUDE_SETTINGS  -- path to a settings JSON passed to `claude
@@ -53,7 +69,7 @@ if [ -f "$WORKDIR/env" ]; then
 fi
 
 if [ "$DOW" -gt 5 ] && [ "$DRY_RUN" = false ]; then
-  echo "$(date '+%Y-%m-%d %H:%M:%S') skipping: weekend" >> "$LOGFILE"
+  log_line "skipping: weekend"
   exit 0
 fi
 
@@ -62,7 +78,7 @@ fi
 # both loaded). Whichever fires first for the day wins; anything after it
 # becomes a no-op unless --force is passed.
 if [ -e "$MARKER" ] && [ "$DRY_RUN" = false ] && [ "$FORCE" = false ]; then
-  echo "$(date '+%Y-%m-%d %H:%M:%S') skipping: already ran today ($MARKER exists) -- pass --force to override" >> "$LOGFILE"
+  log_line "skipping: already ran today ($MARKER exists) -- pass --force to override"
   exit 0
 fi
 
@@ -79,15 +95,15 @@ if [ "$DRY_RUN" = false ]; then
   }
   CONNECTIVITY_DEADLINE=$(date -v11H -v0M -v0S +%s)
   if ! have_network; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') no network yet, retrying every 60s until 11:00" >> "$LOGFILE"
+    log_line "no network yet, retrying every 60s until 11:00"
     while ! have_network; do
       if [ "$(date +%s)" -ge "$CONNECTIVITY_DEADLINE" ]; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S') giving up waiting for network by 11:00, skipping today" >> "$LOGFILE"
+        log_line "giving up waiting for network by 11:00, skipping today"
         exit 0
       fi
       sleep 60
     done
-    echo "$(date '+%Y-%m-%d %H:%M:%S') network is back after waiting" >> "$LOGFILE"
+    log_line "network is back after waiting"
   fi
 fi
 
@@ -213,4 +229,10 @@ touch "$MARKER"
   else
     echo "$(date '+%Y-%m-%d %H:%M:%S') run finished, exit code $STATUS"
   fi
-} >> "$LOGFILE" 2>&1
+# tee to the file and pipe on to logger so this block's output -- including
+# claude's multi-line transcript -- lands in both places. logger with no
+# message argument reads stdin and emits one entry per line. This block uses
+# plain echo rather than log_line(): log_line would append to $LOGFILE
+# directly while the redirect below is also writing it, so the two writers
+# would interleave.
+} 2>&1 | tee -a "$LOGFILE" | logger -t daily-claude

@@ -42,20 +42,14 @@ MARKER="$WORKDIR/.ran-$TODAY"
 mkdir -p "$LOGDIR"
 cd "$WORKDIR" || exit 1
 
-# Log to both macOS unified logging and a per-day file. The system log is the
-# one with retention/rotation handled for us; the files are kept because
-# reading the unified log back (`log show`) needs Full Disk Access for the
-# calling terminal, which isn't always granted, and because the multi-line
-# claude transcript is far easier to read as a file than through `log`.
-#
-# `logger -t daily-claude` tags every line so a single predicate finds them:
-#   log show --last 1d --predicate 'process == "logger"' --style compact
-# Note --predicate matches on `process`, not the tag; the tag shows up in the
-# message text. Falls back silently if logger is somehow unavailable.
+# Log to a per-day file under $LOGDIR. This deliberately does NOT also send
+# lines to macOS unified logging via `logger`: reading those back needs either
+# Full Disk Access or membership in the admin group, and on a managed Mac
+# (CyberArk EPM and friends) a standard user has neither and cannot grant
+# them, so the entries end up write-only. Nothing prunes these files today --
+# they run well under 10KB/day, so that is a someday problem.
 log_line() {
-  local msg="$1"
-  echo "$(date '+%Y-%m-%d %H:%M:%S') $msg" >> "$LOGFILE"
-  command -v logger >/dev/null 2>&1 && logger -t daily-claude "$msg"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOGFILE"
 }
 
 # Optional per-machine config, sourced from the runtime dir rather than this
@@ -238,10 +232,9 @@ touch "$MARKER"
   else
     echo "$(date '+%Y-%m-%d %H:%M:%S') run finished, exit code $STATUS"
   fi
-# tee to the file and pipe on to logger so this block's output -- including
-# claude's multi-line transcript -- lands in both places. logger with no
-# message argument reads stdin and emits one entry per line. This block uses
-# plain echo rather than log_line(): log_line would append to $LOGFILE
-# directly while the redirect below is also writing it, so the two writers
-# would interleave.
-} 2>&1 | tee -a "$LOGFILE" | logger -t daily-claude
+# tee rather than a plain >> append so this block's output -- including
+# claude's multi-line transcript -- also reaches stdout, which is what makes a
+# manual foreground run watchable. This block uses plain echo rather than
+# log_line(): log_line would append to $LOGFILE directly while the tee below
+# is also writing it, so the two writers would interleave.
+} 2>&1 | tee -a "$LOGFILE"

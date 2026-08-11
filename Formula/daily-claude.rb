@@ -47,10 +47,7 @@ class DailyClaude < Formula
       Test without spending anything or touching the vault:
         #{bin}/daily-claude --dry-run
 
-      Runs log to macOS unified logging (tagged daily-claude, rotation
-      handled by the system) and to a per-day file. Read them back with:
-        log show --last 1d --style compact --predicate 'process == "logger"'
-      or, if that terminal lacks Full Disk Access:
+      Per-run logs land in one file per day:
         #{var}/daily-claude/logs/
 
       To choose which account the scheduled run bills against, create

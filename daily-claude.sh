@@ -132,23 +132,34 @@ pipe, to a hyphen when naming these files).
    Out of Office, or Holiday). If such an event exists, do nothing else and
    stop; do not create or modify any notes today.
 
+   Watch the all-day boundary. An all-day event spans midnight to midnight,
+   so the one covering YESTERDAY ends at 00:00 on __TODAY__, and a query for
+   today happily returns it. An all-day event counts as mine for __TODAY__
+   only when it STARTS on __TODAY__. One that merely ends at 00:00 on
+   __TODAY__ belongs to the day before, so ignore it here and in step 2 --
+   treating it as belonging to __TODAY__ would wrongly cancel a work day.
+
 2. Otherwise, fetch my calendar events for __TODAY__ (skip any I declined).
    Only real meetings get notes, so drop each of the following. A dropped
    event gets no bullet under "## Meetings" and no meeting note.
+   - Anything already called off: an event whose isCancelled field is true,
+     or whose subject carries a Canceled or Cancelled prefix.
    - Time off, judged from the title the same way as step 1 (OOO, PTO,
      Vacation, Out of Office, Holiday), even when the event covers only part
      of the day -- a half-day PTO block is not a meeting.
    - Personal time I blocked out for myself, for example Running, Gym,
      Lunch, Focus time, or Pick up kids. Treat an event as personal only
      when ALL THREE of these hold: I am the organizer, no attendee other
-     than me is listed, and there is no Teams or Zoom or other online join
-     link. Requiring all three protects solo-looking business events: a
-     channel-wide all hands can arrive with an empty attendee list, but it
-     has a join link, so it stays.
+     than me is listed, and it has no online join link. The join link lives
+     in the location field, which is where a Zoom or Teams URL shows up;
+     there is no separate join-link field, so a personal block has an empty
+     or absent location. Requiring all three protects solo-looking business
+     events: a channel-wide all hands can arrive with an empty attendee
+     list, but it has a join link, so it stays.
    - Any event carrying an Outlook category named Personal, if the event
      data exposes categories at all.
-   Judge these from the title, organizer, attendees, join link, and
-   categories only. Do not drop a real meeting merely because its body or
+   Judge these from the title, organizer, attendees, location, isCancelled,
+   and categories only. Do not drop a real meeting merely because its body or
    attendee list mentions PTO for someone else, and when a genuinely
    ambiguous event could go either way, keep it -- a spurious note I delete
    costs me less than a real meeting with no note.

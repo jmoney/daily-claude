@@ -133,12 +133,25 @@ pipe, to a hyphen when naming these files).
    stop; do not create or modify any notes today.
 
 2. Otherwise, fetch my calendar events for __TODAY__ (skip any I declined).
-   Also drop any event whose title suggests time off rather than a meeting
-   (the same OOO, PTO, Vacation, Out of Office, Holiday sense as step 1) even
-   though it only covers part of the day -- a half-day PTO block is not a
-   meeting, so it gets no bullet under "## Meetings" and no meeting note.
-   Only the title decides this; do not drop a real meeting merely because
-   its body or attendee list mentions PTO for someone else.
+   Only real meetings get notes, so drop each of the following. A dropped
+   event gets no bullet under "## Meetings" and no meeting note.
+   - Time off, judged from the title the same way as step 1 (OOO, PTO,
+     Vacation, Out of Office, Holiday), even when the event covers only part
+     of the day -- a half-day PTO block is not a meeting.
+   - Personal time I blocked out for myself, for example Running, Gym,
+     Lunch, Focus time, or Pick up kids. Treat an event as personal only
+     when ALL THREE of these hold: I am the organizer, no attendee other
+     than me is listed, and there is no Teams or Zoom or other online join
+     link. Requiring all three protects solo-looking business events: a
+     channel-wide all hands can arrive with an empty attendee list, but it
+     has a join link, so it stays.
+   - Any event carrying an Outlook category named Personal, if the event
+     data exposes categories at all.
+   Judge these from the title, organizer, attendees, join link, and
+   categories only. Do not drop a real meeting merely because its body or
+   attendee list mentions PTO for someone else, and when a genuinely
+   ambiguous event could go either way, keep it -- a spurious note I delete
+   costs me less than a real meeting with no note.
 
 3. List the subfolders of "Daily/" and find the latest one dated before
    __TODAY__ (this is my last work day, whether or not it was yesterday;

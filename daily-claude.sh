@@ -2,7 +2,7 @@
 # Weekday-morning automation: triggers a headless Claude Code session that
 # builds Obsidian daily notes and per-meeting notes from a Microsoft 365
 # calendar. This script itself is just scheduling/guard-rail plumbing --
-# weekday check, dedup marker, network wait, backend selection, budget cap.
+# weekday check, dedup marker, network wait, enterprise backend pin, budget cap.
 # The actual note-building logic lives in the jmoney plugin's /daily-notes
 # command (https://github.com/jmoney/personal-claude), which this script
 # invokes as a prompt. Runs standalone, via a launchd plist, or via
@@ -59,8 +59,10 @@ log_line() {
 # Optional per-machine config, sourced from the runtime dir rather than this
 # repo so credentials/paths are never at risk of being committed. Recognized:
 #   DAILY_CLAUDE_SETTINGS  -- path to a settings JSON passed to `claude
-#                             --settings`, selecting which account this run
-#                             bills against (see the backend note below).
+#                             --settings`, supplying the enterprise model and
+#                             any per-account overrides. Must NOT be a Bedrock
+#                             profile; the backend note below explains why and
+#                             the check there enforces it.
 if [ -f "$WORKDIR/env" ]; then
   # shellcheck source=/dev/null
   . "$WORKDIR/env"
@@ -112,14 +114,13 @@ fi
 # calendar/vault tool names still need to be listed too -- the subagent's own
 # `tools:` frontmatter caps what it CAN call, but permission to actually call
 # them without an interactive prompt is still granted by this session-level
-# list. The calendar tools are listed under two prefixes on purpose. Under the
-# claude.ai/enterprise config the M365 connector is account-scoped and its
-# tools arrive as mcp__claude_ai_Microsoft_365__*; under Bedrock that connector
-# is absent, so M365 is registered as a local MCP server named microsoft365
-# and the same tools arrive as mcp__microsoft365__*. Allowing both means this
-# runs unattended in either environment without an edit. Listing a tool that
-# isn't present is harmless -- it simply never gets called.
-ALLOWED_TOOLS="Agent(daily-notes),mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource,mcp__microsoft365__outlook_calendar_search,mcp__microsoft365__read_resource"
+# list. This automation is enterprise-only, which is why the calendar tools are
+# listed under the mcp__claude_ai_Microsoft_365__* prefix alone: that connector
+# is scoped to the claude.ai org account, and a Bedrock session has no claude.ai
+# account at all. Since the calendar IS the input to this run, there is nothing
+# useful to fall back to under Bedrock -- so the backend check below refuses to
+# run there rather than pretending a fallback exists.
+ALLOWED_TOOLS="Agent(daily-notes),mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource"
 
 # The actual note-building prompt now lives in the jmoney plugin
 # (~/.claude/skills/jmoney/agents/daily-notes.md), invoked via its slash
@@ -136,12 +137,12 @@ touch "$MARKER"
 
 {
   echo "$(date '+%Y-%m-%d %H:%M:%S') starting run for $TODAY"
-  # `--settings` MERGES over the resolved hierarchy rather than replacing it,
-  # so ~/.claude/settings.json still contributes any key the chosen file omits.
-  # That matters for the backend switch: a settings file that simply leaves
-  # CLAUDE_CODE_USE_BEDROCK unset inherits whatever the user file says, so the
-  # run can silently bill the wrong account. Each branch therefore pins the
-  # variable explicitly instead of relying on absence.
+  # `--settings` MERGES over the resolved hierarchy rather than replacing it, so
+  # ~/.claude/settings.json (the shared base) still contributes any key the
+  # chosen profile omits. The base deliberately carries no backend setting at
+  # all, so this pins CLAUDE_CODE_USE_BEDROCK=0 rather than relying on absence:
+  # this run only works against the enterprise account (see the M365 note
+  # above), and a session that came up on Bedrock would have no calendar to read.
   #
   # Deliberately NOT using --setting-sources to isolate from the user file:
   # MCP servers are registered at user scope, so excluding `user` removes the
@@ -149,15 +150,15 @@ touch "$MARKER"
   SETTINGS_ARGS=()
   if [ -n "${DAILY_CLAUDE_SETTINGS:-}" ]; then
     if [ -f "$DAILY_CLAUDE_SETTINGS" ]; then
-      SETTINGS_ARGS=(--settings "$DAILY_CLAUDE_SETTINGS")
-      case "$DAILY_CLAUDE_SETTINGS" in
-        *aws*|*bedrock*)
-          SETTINGS_ARGS+=(--settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"1"}}')
-          ;;
-        *)
-          SETTINGS_ARGS+=(--settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}')
-          ;;
-      esac
+      # Refusing outright beats running with a pinned backend that contradicts
+      # the rest of the profile: a Bedrock profile also names a Bedrock model,
+      # which the enterprise endpoint would reject anyway.
+      if [ "$(jq -r '.env.CLAUDE_CODE_USE_BEDROCK // "0"' "$DAILY_CLAUDE_SETTINGS")" = "1" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') DAILY_CLAUDE_SETTINGS=$DAILY_CLAUDE_SETTINGS enables Bedrock, but this automation is enterprise-only, aborting"
+        exit 1
+      fi
+      SETTINGS_ARGS=(--settings "$DAILY_CLAUDE_SETTINGS"
+                     --settings '{"env":{"CLAUDE_CODE_USE_BEDROCK":"0"}}')
     else
       # Failing loudly beats silently billing the default account.
       echo "$(date '+%Y-%m-%d %H:%M:%S') DAILY_CLAUDE_SETTINGS=$DAILY_CLAUDE_SETTINGS does not exist, aborting"

@@ -41,6 +41,11 @@ class DailyClaude < Formula
       Obsidian and Microsoft 365 MCP connectors on a schedule, and will
       write to your vault. Read daily-claude.sh before enabling it.
 
+      The note-building logic itself lives in the jmoney Claude Code plugin's
+      /jmoney:daily-notes command, not in this script -- it must be installed
+      at ~/.claude/skills/jmoney (https://github.com/jmoney/personal-claude)
+      or every scheduled run will fail to find that command.
+
       Start the schedule:
         brew services start daily-claude
 

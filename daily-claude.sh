@@ -63,6 +63,13 @@ log_line() {
 #                             any per-account overrides. Must NOT be a Bedrock
 #                             profile; the backend note below explains why and
 #                             the check there enforces it.
+#   DAILY_CLAUDE_VAULT     -- absolute path to the Obsidian vault, used only to
+#                             confirm the note actually landed (see the check
+#                             after the run). The run itself reaches the vault
+#                             through the obsidian MCP server, so this is the
+#                             one place the script needs the path on disk.
+#                             Unset means the check is skipped rather than
+#                             failing, so an existing install keeps working.
 if [ -f "$WORKDIR/env" ]; then
   # shellcheck source=/dev/null
   . "$WORKDIR/env"
@@ -173,7 +180,16 @@ touch "$MARKER"
   # ${A[@]+"${A[@]}"} rather than a bare "${A[@]}": /bin/bash on macOS is 3.2,
   # where expanding an empty array under `set -u` is a fatal unbound-variable
   # error. This form expands to nothing at all when SETTINGS_ARGS is empty.
-  gtimeout --kill-after=30s 10m claude -p "$PROMPT" \
+  # caffeinate holds the assertion for exactly as long as the run: launchd fires
+  # this on a maintenance darkwake, and without an assertion the machine goes
+  # straight back to sleep mid-run -- on 2026-08-18 it slept 44s in and stayed
+  # down 22 minutes, so the run got ~2 minutes of actual runtime spread across a
+  # 25 minute wall clock. That also means gtimeout cannot be relied on alone to
+  # bound the run: its timer only advances while the machine is awake, so a
+  # suspended run blows through the wall-clock limit without ever tripping it.
+  # -i prevents idle sleep and -s prevents system sleep (the latter only has an
+  # effect on AC power, which is the case that was actually failing).
+  caffeinate -i -s gtimeout --kill-after=30s 10m claude -p "$PROMPT" \
     ${SETTINGS_ARGS[@]+"${SETTINGS_ARGS[@]}"} \
     --allowedTools "$ALLOWED_TOOLS" \
     --max-budget-usd 3.00 \
@@ -184,9 +200,47 @@ touch "$MARKER"
   else
     echo "$(date '+%Y-%m-%d %H:%M:%S') run finished, exit code $STATUS"
   fi
+  # The pipeline below makes this a subshell, so exit here rather than assigning:
+  # it is the only way the status reaches the caller, which reads PIPESTATUS[0].
+  exit "$STATUS"
 # tee rather than a plain >> append so this block's output -- including
 # claude's multi-line transcript -- also reaches stdout, which is what makes a
 # manual foreground run watchable. This block uses plain echo rather than
 # log_line(): log_line would append to $LOGFILE directly while the tee below
 # is also writing it, so the two writers would interleave.
 } 2>&1 | tee -a "$LOGFILE"
+CLAUDE_STATUS=${PIPESTATUS[0]}
+
+# `claude -p` exits 0 whenever the model produced a reply -- including a reply
+# that only explains why nothing was built. Two consecutive days of empty runs
+# each reported exit code 0 this way, so launchd, `brew services` and the log
+# line above all looked healthy while the vault went untouched. The note on
+# disk is the only trustworthy success signal, so check for it and let a real
+# failure reach the scheduler as a non-zero exit.
+FAILED=false
+if [ "$CLAUDE_STATUS" -ne 0 ]; then
+  FAILED=true
+fi
+
+if [ -n "${DAILY_CLAUDE_VAULT:-}" ]; then
+  NOTE="$DAILY_CLAUDE_VAULT/Daily/$TODAY/Daily.md"
+  if [ -s "$NOTE" ]; then
+    log_line "verified note exists: $NOTE"
+  else
+    log_line "no note at $NOTE -- the run reported success but wrote nothing"
+    FAILED=true
+  fi
+else
+  log_line "DAILY_CLAUDE_VAULT unset, skipping the note check -- set it in $WORKDIR/env to have empty runs reported as failures"
+fi
+
+if [ "$FAILED" = true ]; then
+  # Dropping the marker lets a later fire or a plain re-run try again, rather
+  # than the day being written off as done by a run that produced nothing.
+  rm -f "$MARKER"
+  log_line "run failed, cleared $MARKER so the next attempt is not skipped"
+  exit 1
+fi
+
+log_line "run succeeded"
+exit 0

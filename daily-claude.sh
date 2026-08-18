@@ -120,7 +120,11 @@ fi
 # account at all. Since the calendar IS the input to this run, there is nothing
 # useful to fall back to under Bedrock -- so the backend check below refuses to
 # run there rather than pretending a fallback exists.
-ALLOWED_TOOLS="Agent(daily-notes),mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource"
+# ToolSearch is listed because MCP tool schemas now arrive deferred: the tool
+# names are visible but nothing is callable until its schema is loaded, and a
+# subagent without permission to run that search sees no calendar or vault
+# tools at all and reports them as missing rather than failing loudly.
+ALLOWED_TOOLS="Agent(daily-notes),mcp__obsidian__vault_list,mcp__obsidian__vault_read,mcp__obsidian__vault_write,mcp__obsidian__vault_append,mcp__obsidian__vault_patch,mcp__obsidian__vault_get_document_map,mcp__claude_ai_Microsoft_365__outlook_calendar_search,mcp__claude_ai_Microsoft_365__read_resource,ToolSearch"
 
 # The actual note-building prompt now lives in the jmoney plugin
 # (~/.claude/skills/jmoney/agents/daily-notes.md), invoked via its slash
